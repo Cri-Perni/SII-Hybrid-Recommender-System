@@ -1,10 +1,12 @@
 import os
+import re
 import urllib.request
 import zipfile
 import pandas as pd
 import numpy as np
 
 MOVIELENS_100K_URL = "https://files.grouplens.org/datasets/movielens/ml-100k.zip"
+MOVIELENS_1M_URL = "https://files.grouplens.org/datasets/movielens/ml-1m.zip"
 
 GENRE_NAMES = [
     "unknown", "Action", "Adventure", "Animation", "Children's", "Comedy",
@@ -12,23 +14,32 @@ GENRE_NAMES = [
     "Musical", "Mystery", "Romance", "Sci-Fi", "Thriller", "War", "Western"
 ]
 
-def download_and_extract_movielens(data_dir="data"):
+def download_and_extract_movielens(dataset_name="ml-100k", data_dir="data"):
     """
-    Downloads MovieLens 100k dataset if not already present in data_dir.
-    Returns path to ml-100k folder.
+    Downloads and extracts MovieLens dataset ("ml-100k" or "ml-1m") if not present.
+    Returns path to extracted folder.
     """
     os.makedirs(data_dir, exist_ok=True)
-    target_dir = os.path.join(data_dir, "ml-100k")
+    target_dir = os.path.join(data_dir, dataset_name)
     
-    if os.path.exists(os.path.join(target_dir, "u.data")) and os.path.exists(os.path.join(target_dir, "u.item")):
-        print(f"[DataLoader] Dataset found in {target_dir}")
-        return target_dir
+    if dataset_name == "ml-100k":
+        if os.path.exists(os.path.join(target_dir, "u.data")) and os.path.exists(os.path.join(target_dir, "u.item")):
+            print(f"[DataLoader] MovieLens 100k dataset found in {target_dir}")
+            return target_dir
+        url = MOVIELENS_100K_URL
+    elif dataset_name == "ml-1m":
+        if os.path.exists(os.path.join(target_dir, "ratings.dat")) and os.path.exists(os.path.join(target_dir, "movies.dat")):
+            print(f"[DataLoader] MovieLens 1M dataset found in {target_dir}")
+            return target_dir
+        url = MOVIELENS_1M_URL
+    else:
+        raise ValueError(f"Unknown dataset_name: {dataset_name}. Expected 'ml-100k' or 'ml-1m'.")
 
-    zip_path = os.path.join(data_dir, "ml-100k.zip")
-    print(f"[DataLoader] Downloading MovieLens 100k from {MOVIELENS_100K_URL}...")
-    urllib.request.urlretrieve(MOVIELENS_100K_URL, zip_path)
+    zip_path = os.path.join(data_dir, f"{dataset_name}.zip")
+    print(f"[DataLoader] Downloading {dataset_name} from {url}...")
+    urllib.request.urlretrieve(url, zip_path)
     
-    print("[DataLoader] Extracting dataset...")
+    print(f"[DataLoader] Extracting {dataset_name}...")
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(data_dir)
     
@@ -39,40 +50,72 @@ def download_and_extract_movielens(data_dir="data"):
     return target_dir
 
 
-def load_ratings(ml_dir="data/ml-100k"):
+def load_ratings(ml_dir="data/ml-100k", dataset_name="ml-100k"):
     """
-    Loads u.data ratings into a pandas DataFrame.
+    Loads ratings into a pandas DataFrame.
     Columns: user_id, item_id, rating, timestamp
     """
-    u_data_path = os.path.join(ml_dir, "u.data")
-    ratings = pd.read_csv(
-        u_data_path,
-        sep="\t",
-        names=["user_id", "item_id", "rating", "timestamp"],
-        encoding="latin-1"
-    )
+    if dataset_name == "ml-100k":
+        u_data_path = os.path.join(ml_dir, "u.data")
+        ratings = pd.read_csv(
+            u_data_path,
+            sep="\t",
+            names=["user_id", "item_id", "rating", "timestamp"],
+            encoding="latin-1"
+        )
+    elif dataset_name == "ml-1m":
+        r_data_path = os.path.join(ml_dir, "ratings.dat")
+        ratings = pd.read_csv(
+            r_data_path,
+            sep="::",
+            engine="python",
+            names=["user_id", "item_id", "rating", "timestamp"],
+            encoding="latin-1"
+        )
+    else:
+        raise ValueError(f"Unsupported dataset_name: {dataset_name}")
+        
     return ratings
 
 
-def load_items(ml_dir="data/ml-100k"):
+def load_items(ml_dir="data/ml-100k", dataset_name="ml-100k"):
     """
-    Loads u.item movie metadata into a pandas DataFrame.
-    Columns: item_id, title, release_date, video_release_date, imdb_url, 19 genre binary columns.
+    Loads item metadata into a pandas DataFrame.
+    Columns: item_id, title, release_year, and 19 genre binary columns.
     """
-    u_item_path = os.path.join(ml_dir, "u.item")
-    cols = ["item_id", "title", "release_date", "video_release_date", "imdb_url"] + GENRE_NAMES
-    items = pd.read_csv(
-        u_item_path,
-        sep="|",
-        names=cols,
-        encoding="latin-1"
-    )
-    
-    # Extract release year from release_date (e.g. '01-Jan-1995' -> 1995)
-    items['release_year'] = pd.to_datetime(items['release_date'], format='%d-%b-%Y', errors='coerce').dt.year
+    if dataset_name == "ml-100k":
+        u_item_path = os.path.join(ml_dir, "u.item")
+        cols = ["item_id", "title", "release_date", "video_release_date", "imdb_url"] + GENRE_NAMES
+        items = pd.read_csv(
+            u_item_path,
+            sep="|",
+            names=cols,
+            encoding="latin-1"
+        )
+        items['release_year'] = pd.to_datetime(items['release_date'], format='%d-%b-%Y', errors='coerce').dt.year
+    elif dataset_name == "ml-1m":
+        m_item_path = os.path.join(ml_dir, "movies.dat")
+        items = pd.read_csv(
+            m_item_path,
+            sep="::",
+            engine="python",
+            names=["item_id", "title", "genres"],
+            encoding="latin-1"
+        )
+        
+        # Parse release year from Title e.g. "Toy Story (1995)"
+        extracted_years = items['title'].str.extract(r'\((\d{4})\)$')[0]
+        items['release_year'] = pd.to_numeric(extracted_years, errors='coerce')
+        
+        # Create binary genre columns matching GENRE_NAMES
+        for g in GENRE_NAMES:
+            items[g] = items['genres'].apply(lambda x: 1 if isinstance(x, str) and g in x.split('|') else 0)
+    else:
+        raise ValueError(f"Unsupported dataset_name: {dataset_name}")
+        
     # Fill missing years with median year
     median_year = items['release_year'].median()
-    items['release_year'] = items['release_year'].fillna(median_year).astype(int)
+    items['release_year'] = items['release_year'].fillna(median_year if not pd.isna(median_year) else 1995).astype(int)
     
     return items
 
@@ -116,8 +159,8 @@ def compute_sparsity(ratings_df, items_df):
     
     sparsity = 1.0 - (num_ratings / (num_users * num_items))
     return {
-        "num_users": num_users,
-        "num_items": num_items,
-        "num_ratings": num_ratings,
-        "sparsity": sparsity
+        "num_users": int(num_users),
+        "num_items": int(num_items),
+        "num_ratings": int(num_ratings),
+        "sparsity": float(sparsity)
     }

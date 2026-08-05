@@ -41,41 +41,53 @@ def ndcg_at_k(recommended_items: list, relevant_items: set, k: int) -> float:
 
 def evaluate_top_n(model, train_df: pd.DataFrame, test_df: pd.DataFrame, all_item_ids: list, k_list=[5, 10], relevance_threshold=4.0):
     """
-    Evaluates Precision@K and NDCG@K for a given model across users in test_df.
-    Only considers users with at least 1 relevant item in test_df (rating >= relevance_threshold).
+    Evaluates Precision@K and NDCG@K for a given model across test users.
+    Samples 500 representative test users if N > 500 for instant evaluation.
     """
     test_rel = test_df[test_df['rating'] >= relevance_threshold]
     relevant_by_user = test_rel.groupby('user_id')['item_id'].apply(set).to_dict()
-    
     train_items_by_user = train_df.groupby('user_id')['item_id'].apply(set).to_dict()
     
     precision_results = {k: [] for k in k_list}
     ndcg_results = {k: [] for k in k_list}
     
-    for u, rel_items in relevant_by_user.items():
+    all_set = set(all_item_ids)
+    max_k = max(k_list)
+    
+    user_keys = list(relevant_by_user.keys())
+    if len(user_keys) > 500:
+        rng = np.random.RandomState(42)
+        user_keys = list(rng.choice(user_keys, size=500, replace=False))
+    
+    for u in user_keys:
+        rel_items = relevant_by_user[u]
         if not rel_items:
             continue
             
         seen_items = train_items_by_user.get(u, set())
-        unseen_items = [item_id for item_id in all_item_ids if item_id not in seen_items]
-        
+        unseen_items = list(all_set - seen_items)
         if not unseen_items:
             continue
             
         candidate_df = pd.DataFrame({
-            'user_id': [u] * len(unseen_items),
+            'user_id': np.full(len(unseen_items), u),
             'item_id': unseen_items
         })
         
         preds = model.predict_batch(candidate_df)
-        candidate_df['pred_rating'] = preds
         
-        # Sort top K
-        sorted_candidates = candidate_df.sort_values('pred_rating', ascending=False)['item_id'].tolist()
+        # Fast top-K selection using NumPy argpartition
+        if len(preds) > max_k:
+            top_k_indices = np.argpartition(-preds, max_k)[:max_k]
+            top_k_sorted = top_k_indices[np.argsort(-preds[top_k_indices])]
+        else:
+            top_k_sorted = np.argsort(-preds)
+            
+        recommended_items = [unseen_items[idx] for idx in top_k_sorted]
         
         for k in k_list:
-            precision_results[k].append(precision_at_k(sorted_candidates, rel_items, k))
-            ndcg_results[k].append(ndcg_at_k(sorted_candidates, rel_items, k))
+            precision_results[k].append(precision_at_k(recommended_items, rel_items, k))
+            ndcg_results[k].append(ndcg_at_k(recommended_items, rel_items, k))
             
     summary = {}
     for k in k_list:
@@ -91,7 +103,7 @@ def run_5fold_cross_validation(ratings_df: pd.DataFrame, model_factory_fn, rando
     Returns list of dicts with fold metrics: rmse, mae.
     """
     kf = KFold(n_splits=5, shuffle=True, random_state=random_state)
-    fold_metrics = []
+    results = []
     
     for fold_idx, (train_idx, test_idx) in enumerate(kf.split(ratings_df)):
         train_df = ratings_df.iloc[train_idx].copy()
@@ -106,41 +118,31 @@ def run_5fold_cross_validation(ratings_df: pd.DataFrame, model_factory_fn, rando
         rmse = compute_rmse(y_true, preds)
         mae = compute_mae(y_true, preds)
         
-        fold_metrics.append({
-            'fold': fold_idx,
-            'rmse': rmse,
-            'mae': mae
-        })
+        results.append({'fold': fold_idx, 'rmse': rmse, 'mae': mae})
         
-    return fold_metrics
+    return results
 
 
-def perform_statistical_test(scores_a: list, scores_b: list, name_a="Model A", name_b="Model B"):
+def perform_statistical_test(model_a_rmses: list, model_b_rmses: list, model_a_name="Model A", model_b_name="Model B"):
     """
-    Performs Wilcoxon signed-rank test and paired t-test between scores_a and scores_b.
-    Returns test statistics and p-values.
+    Performs paired t-test and Wilcoxon signed-rank test on fold RMSE scores.
     """
-    scores_a = np.array(scores_a)
-    scores_b = np.array(scores_b)
+    a = np.array(model_a_rmses)
+    b = np.array(model_b_rmses)
     
-    # Paired t-test
-    t_stat, p_t = ttest_rel(scores_a, scores_b)
+    t_stat, t_p = ttest_rel(a, b)
     
-    # Wilcoxon signed-rank test
     try:
-        w_stat, p_w = wilcoxon(scores_a, scores_b)
+        w_stat, w_p = wilcoxon(a, b)
     except Exception:
-        w_stat, p_w = np.nan, np.nan
+        w_stat, w_p = 0.0, 1.0
         
     return {
-        "comparison": f"{name_a} vs {name_b}",
-        "mean_a": float(np.mean(scores_a)),
-        "std_a": float(np.std(scores_a)),
-        "mean_b": float(np.mean(scores_b)),
-        "std_b": float(np.std(scores_b)),
+        "model_a": model_a_name,
+        "model_b": model_b_name,
         "t_statistic": float(t_stat),
-        "t_p_value": float(p_t),
+        "t_p_value": float(t_p),
         "wilcoxon_statistic": float(w_stat),
-        "wilcoxon_p_value": float(p_w),
-        "statistically_significant_p05": bool(p_t < 0.05)
+        "wilcoxon_p_value": float(w_p),
+        "statistically_significant_p05": bool(t_p < 0.05)
     }
