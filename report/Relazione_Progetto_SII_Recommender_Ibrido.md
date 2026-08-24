@@ -4,7 +4,7 @@
 **Corso:** Sistemi Intelligenti per Internet (SII)  
 **Anno Accademico:** 2025/2026  
 **Studente:** Cristian Perniocni — Matricola: 566835
-**Repository GitHub:** `https://github.com/username/SII-Hybrid-Recommender-System`
+**Repository GitHub:** `https://github.com/Cri-Perni/SII-Hybrid-Recommender-System`
 
 ---
 
