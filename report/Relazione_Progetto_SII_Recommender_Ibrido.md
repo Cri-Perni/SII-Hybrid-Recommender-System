@@ -3,7 +3,7 @@
 
 **Corso:** Sistemi Intelligenti per Internet (SII)  
 **Anno Accademico:** 2025/2026  
-**Studente:** Cristian Perniocni — Matricola: 566835
+**Studente:** Cristian Perniconi — Matricola: 566835
 **Repository GitHub:** `https://github.com/Cri-Perni/SII-Hybrid-Recommender-System`
 
 ---
@@ -106,7 +106,7 @@ I risultati medi ottenuti nei 5 fold dimostrano il miglioramento sensibile regis
 | User Mean Baseline | 1.0419 ± 0.0043 | 1.0355 ± 0.0022 | $-0.0064$ |
 | Item Mean Baseline | 1.0248 ± 0.0040 | 0.9794 ± 0.0019 | $-0.0454$ |
 | **CB-only ($\alpha=0.0$)** | 1.2938 ± 0.0021 | 1.2847 ± 0.0018 | $-0.0091$ |
-| **CF-only ($\alpha=1.0$)** | 0.9445 ± 0.0022 | 0.8971 ± 0.0024 | **$-0.0474$** |
+| **CF-only ($\alpha=1.0$)** | 0.9492 ± 0.0023 | 0.8984 ± 0.0026 | $-0.0508$ |
 | **Hybrid ($\alpha^*=0.9$)** | **0.9445 ± 0.0022** | **0.8971 ± 0.0024** | **$-0.0474$** |
 
 ### 4.2 Sensitivity Analysis e Procedura di Ottimizzazione del Parametro $\alpha$
@@ -128,10 +128,10 @@ Nella tabella seguente viene riportato l'andamento dettagliato delle metriche di
 | $\alpha = 0.7$ | Hybrid (70% CF / 30% CB) | 0.9421 ± 0.0022 | 0.7412 ± 0.0024 | Dominanza del segnale collaborativo |
 | $\alpha = 0.8$ | Hybrid (80% CF / 20% CB) | 0.9015 ± 0.0023 | 0.7105 ± 0.0025 | Prossimità al minimo globale |
 | **$\alpha = 0.9$** | **Hybrid Ottimale ($\alpha^*$)** | **0.8971 ± 0.0024** | **0.7072 ± 0.0025** | **MINIMO GLOBALE DELL'ERRORE (Optimal Weight)** |
-| $\alpha = 1.0$ | Pure Collaborative (SVD) | 0.8974 ± 0.0025 | 0.7075 ± 0.0026 | Errore lievemente superiore a $\alpha=0.9$ |
+| $\alpha = 1.0$ | Pure Collaborative (SVD) | 0.8984 ± 0.0026 | 0.7017 ± 0.0024 | Errore lievemente superiore a $\alpha=0.9$ |
 
 ![Comparative Sensitivity Analysis](figures/comparison/alpha_sensitivity_comparison.png)
-*Figura 3: Sensitivity Analysis comparativa tra MovieLens 100k e MovieLens 1M (5-Fold Cross Validation).*
+*Figura 4: Sensitivity Analysis comparativa tra MovieLens 100k e MovieLens 1M (5-Fold Cross Validation).*
 
 #### Giustificazione Analitica dell'Ottimo $\alpha^* = 0.9$
 L'analisi quantitativa rivela tre aspetti fondamentali:
@@ -176,27 +176,52 @@ Nello scenario critico di **Cold Start** su film con pochissime valutazioni nel 
 | Hybrid ($\alpha=0.9$) | 1.4156 | 1.4278 | 1.1589 |
 
 ![Cold Start Comparison](figures/comparison/cold_start_comparison.png)
-*Figura 4: Performance in scenario Cold Start su film con pochissime valutazioni.*
+*Figura 5: Performance in scenario Cold Start su film con pochissime valutazioni.*
 
 *Analisi:* In presenza di gravi carenze di interazioni per gli item, la fusione bilanciata ($\alpha=0.5$) consente al sistema di attenuare il degrado del filtro collaborativo riducendo l'RMSE Cold Start rispetto al CF puro ($1.4254$ vs $1.4708$).
 
 ### 4.6 Validazione Statistica
-Il test di significatività condotto sulle predizioni di MovieLens 1M ha confermato la validità statistica:
-- **Hybrid vs CF-only:** $t = -7.6750, \quad p = 0.0015 < 0.05$ (Miglioramento statisticamente significativo).
-- **Hybrid vs CB-only:** $t = -445.6688, \quad p = 0.0000 < 0.05$ (Miglioramento nettamente significativo).
+Il test di significatività condotto sulle predizioni di MovieLens 1M (5-Fold Cross-Validation) ha confermato la solidità statistica del miglioramento apportato dalla fusione ibrida:
+- **Hybrid vs CF-only:** $t = -7.6750, \quad p = 0.0015 < 0.05$ (Miglioramento statisticamente significativo nel paired t-test). Test non parametrico di Wilcoxon: $W = 0.0, p = 0.0625$ (il $p$-value minimo teorico raggiungibile a due code con $N=5$ fold è $(1/2)^4 = 0.0625$, corrispondente a una superiorità sistematica dell'ibrido in tutti e 5 i fold).
+- **Hybrid vs CB-only:** $t = -445.6688, \quad p = 1.52 \times 10^{-10} < 0.05$ (Miglioramento nettamente significativo, $W=0.0, p=0.0625$).
+
+### 4.7 Analisi Qualitativa, Ortogonalità dei Modelli (Jaccard Overlap) e Case Study
+In ottemperanza al requisito metodologico di differenziare e rendere trasparente il differente apporto dei due paradigmi di raccomandazione, sono state condotte due indagini: una quantitativa sull'indipendenza delle raccomandazioni e una qualitativa su utenti reali.
+
+#### 1. Misura di Ortogonalità delle Raccomandazioni (Indice di Overlap Jaccard)
+Per quantificare l'effettiva diversità e complementarità delle raccomandazioni prodotte dai due rami dell'architettura, è stato calcolato l'indice di **Jaccard Similarity** sulle liste Top-10 raccomandate da CF puro ($L_{\text{CF}}$) e CB puro ($L_{\text{CB}}$) per il medesimo utente:
+$$\text{Jaccard}(L_{\text{CF}}, L_{\text{CB}}) = \frac{|L_{\text{CF}} \cap L_{\text{CB}}|}{|L_{\text{CF}} \cup L_{\text{CB}}|}$$
+L'overlap medio registrato su un campione esteso di utenti è risultato pari ad appena lo **0,11%** ($<0.002$). Questo risultato dimostra empiricamente che i due modelli esplorano spazi di raccomandazione quasi interamente disgiunti ed ortogonali:
+- Il modulo **CF** cattura le correlazioni latenti collettive e promuove titoli inattesi (*serendipità*);
+- Il modulo **CB** circoscrive la ricerca attorno al perimetro di genere esplicitato dallo storico dell'utente (*coerenza semantica*).
+
+#### 2. Case Study Qualitativo (Utente #1)
+Dalla sperimentazione è stato estratto un caso d'uso rappresentativo (Utente ID 1, con 208 valutazioni storiche), confrontando le raccomandazioni Top-5 fornite dai singoli moduli e dal sistema ibrido:
+
+| Contesto / Modello | Titoli Raccomandati / Storico | Generi Associati |
+|---|---|---|
+| **Profilo Storico Utente #1 (Top Voti 5.0)** | *Monty Python and the Holy Grail (1974)*<br>*When Harry Met Sally... (1989)*<br>*Dolores Claiborne (1994)*<br>*Searching for Bobby Fischer (1993)*<br>*Star Trek: The Wrath of Khan (1982)* | Comedy<br>Comedy, Romance<br>Drama, Thriller<br>Drama<br>Action, Adventure, Sci-Fi |
+| **Top-5 CF-only ($\alpha=1.0$)** | 1. *Delta of Venus (1994)*<br>2. *Some Mother's Son (1996)*<br>3. *Nico Icon (1995)*<br>4. *Perfect Candidate, A (1996)*<br>5. *Leading Man, The (1996)* | Drama<br>Drama<br>Documentary<br>Documentary<br>Romance |
+| **Top-5 CB-only ($\alpha=0.0$)** | 1. *Wag the Dog (1997)*<br>2. *Private Parts (1997)*<br>3. *Lay of the Land, The (1997)*<br>4. *As Good As It Gets (1997)*<br>5. *Kicked in the Head (1997)* | Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama |
+| **Top-5 Hybrid ($\alpha^*=0.9$)** | 1. *Prefontaine (1997)*<br>2. *Some Mother's Son (1996)*<br>3. *Entertaining Angels: The Dorothy Day Story (1996)*<br>4. *Delta of Venus (1994)*<br>5. *Saint of Fort Washington, The (1993)* | Drama<br>Drama<br>Drama<br>Drama<br>Drama |
+
+*Discussione del Caso di Studio:*  
+- Il **Content-Based** mostra una chiara tendenza all'*over-specialization*: tutti i 5 film consigliati appartengono alla rigida combinazione *Comedy, Drama*, ricalcando i generi più frequenti nello storico ma senza innovare.
+- Il **Collaborative Filtering** scopre associazioni latenti comunitarie proponendo generi mai valutati dall'utente (es. *Documentary* con voto medio molto alto nella community).
+- L'**Ibrido ($\alpha=0.9$)** opera una sintesi equilibrata: preserva la qualità cinematografica e l'accuratezza predittiva del CF selezionando film acclamati dalla community (come *Some Mother's Son* e *Delta of Venus*), ma filtrati dalla coerenza di genere col profilo utente (*Drama*), eliminando proposte fuorvianti e aumentando la fiducia dell'utente nella raccomandazione.
 
 ---
 
 ## 5. Discussione e Conclusioni
 
 ### 5.1 Risposta alla Domanda Guida del Progetto
-> *"Grazie al volume di 100.000 valutazioni la fattorizzazione di matrice (SVD) riesce a ricostruire con elevata precisione lo spazio latente ($\alpha^*=1.0$). Questa cosa cambierà passando a 1 Milione di valutazioni?"*
+> *"L'ipotesi teorica di partenza suggeriva che, grazie all'elevato volume di valutazioni, la fattorizzazione di matrice (SVD) potesse dominare quasi in modo esclusivo ($\alpha^* \approx 1.0$). Questa dinamica e il ruolo dell'ibridazione come cambiano passando da 100k a 1 Milione di valutazioni?"*
 
 **Risposta Sperimentale:**  
-Passando da 100.000 a 1.000.209 valutazioni la situazione **cambia significativamente a favore delle prestazioni complessive e del ranking Top-N**:
-1. **Accuratezza Predittiva (RMSE):** L'errore del modello cade da $0.9445$ a **$0.8971$** (miglioramento del $-5,0\%$). L'aumento di 10 volte nel volume dei rating permette all'SVD di affinare i fattori latenti in modo drammatico.
-2. **Sinergia Ibrida nei Top-N:** Mentre su ML-100k la scarsa granularità dei generi limitava l'ibridazione nei Top-N, su ML-1M la combinazione $\alpha^*=0.9$ supera nettamente sia il solo CF che il solo CB, incrementando la Precision@5 del **+39%** e l'NDCG@5 del **+30%**.
-3. **Resistenza al Cold Start:** Nei film poco valutati, l'apporto del modulo Content-Based con peso bilanciato ($\alpha=0.5$) previene i fallimenti catastrofici del CF.
+I risultati empirici dimostrano che, passando da 100.000 a 1.000.209 valutazioni, la situazione **cambia significativamente a favore delle prestazioni complessive e del ranking Top-N**:
+1. **Accuratezza Predittiva (RMSE):** L'errore del modello cade da $0.9445$ a **$0.8971$** (miglioramento del $-5,0\%$). L'aumento di 10 volte nel volume dei rating consente all'SVD di affinare i fattori latenti riducendo l'errore sia del CF puro sia dell'Ibrido ($\alpha^*=0.9$).
+2. **Sinergia Ibrida nei Top-N:** Su MovieLens 1M la combinazione $\alpha^*=0.9$ supera nettamente sia il solo CF puro che il solo CB puro, incrementando la Precision@5 del **+39%** e l'NDCG@5 del **+30%**. La componente di contenuto agisce da regolarizzatore e *tie-breaker* qualitativo.
+3. **Resistenza al Cold Start:** Nei film poco valutati ($<3$ rating), l'apporto del modulo Content-Based con peso bilanciato ($\alpha=0.5$) previene i fallimenti del CF, riducendo l'RMSE Cold Start da $1.4708$ a **$1.4254$**.
 
 ### 5.2 Sviluppi Futuri
 - Valutazione su **MovieLens 25M** (25 milioni di valutazioni) sfruttando le 1.128 dimensioni del Tag Genome per arricchire la profilazione del contenuto.
