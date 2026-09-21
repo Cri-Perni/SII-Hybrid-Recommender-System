@@ -1,235 +1,192 @@
 # Relazione di Progetto: Sistema di Raccomandazione Ibrido per SII
-## Analisi Comparativa Scalabile tra Dataset MovieLens 100k e MovieLens 1M
+## Valutazione riproducibile mediante Nested Cross-Validation
 
 **Corso:** Sistemi Intelligenti per Internet (SII)  
 **Anno Accademico:** 2025/2026  
 **Studente:** Cristian Perniconi — Matricola: 566835
-**Repository GitHub:** `https://github.com/Cri-Perni/SII-Hybrid-Recommender-System`
 
 ---
 
 ## Abstract
-Il presente lavoro illustra la progettazione, lo sviluppo e la valutazione sperimentale comparativa di un **Sistema di Raccomandazione Ibrido** (Collaborative Filtering + Content-Based) applicato su due benchmark a diversa scala: **MovieLens 100k** (100.000 valutazioni, 943 utenti, 1.682 film) e **MovieLens 1M** (1.000.209 valutazioni, 6.040 utenti, 3.883 film, senza alcun campionamento). Il sistema combina un modello di fattorizzazione di matrice (SVD con bias utente e item) per ricostruire lo spazio latente con un modulo basato sulla profilazione del contenuto (19 generi cinematografici + anno di uscita normalizzato mediante Cosine Similarity). Vengono condotti esperimenti estensivi tramite **5-Fold Cross-Validation**, valutando l'accuratezza predittiva dei rating (RMSE, MAE), le prestazioni di ranking nei Top-K (Precision@K, NDCG@K), la **Sensitivity Analysis** sull'impatto del parametro di fusione $\alpha \in [0.0, 1.0]$, l'effetto della soglia del profilo utente $\theta \in \{3.0, 4.0\}$ e la risposta in condizioni di **Cold Start**. I risultati dimostrano che l'aumento della scala dei dati (1 Milione di rating) consente al modello ibrido di raggiungere un RMSE di **0,8971** ($\alpha^*=0.9$) e di incrementare la Precision@5 del **+39%** rispetto al Collaborative Filtering puro, confermando la significatività statistica tramite **paired t-test** e **test di Wilcoxon**.
 
----
+Il progetto confronta Collaborative Filtering (CF), Content-Based Filtering (CB) e una fusione ibrida pesata sui dataset MovieLens 100k e MovieLens 1M. Per evitare che il test influisca sulla scelta degli iperparametri, ogni risultato finale è stimato con una nested cross-validation: cinque fold esterni costituiscono test indipendenti e, per ciascuno, tre fold interni selezionano `alpha` e la soglia del profilo CB `theta`. 
 
-## 1. Introduzione ed Obiettivi
-I Sistemi di Raccomandazione (Recommender Systems - RS) costituiscono uno degli strumenti fondamentali per contrastare l'information overload nelle piattaforme digitali. Le due famiglie principali di RS presentano vantaggi e limiti complementari:
-- **Collaborative Filtering (CF):** Basato sui pattern d'interazione utente-item (rating). È in grado di scoprire relazioni latenti senza richiedere metadati, ma soffre fortemente della sparsità della matrice e dell'incapacità di formulare predizioni per utenti o oggetti con poche valutazioni (**Cold Start**).
-- **Content-Based Filtering (CB):** Basato sui descrittori degli oggetti (metadati). È in grado di raccomandare item di nicchia o appena inseriti a catalogo, ma tende all'over-specializzazione e le sue prestazioni dipendono in modo critico dalla ricchezza ed espressività dei metadati.
+## 1. Protocollo sperimentale
 
-### Obiettivi Specifici del Progetto
-1. Realizzare un'architettura modulare in Python con **fusione pesata (Weighted Hybrid)** parametrizzata da $\alpha \in [0, 1]$.
-2. Integrare il supporto multi-dataset scalabile per **MovieLens 100k** e **MovieLens 1M** in forma integrale (nessun sottocampionamento).
-3. Confrontare quantitativamente le prestazioni del modello ibrido con tre **baseline naive** (Global Mean, User Mean, Item Mean).
-4. Eseguire una **Sensitivity Analysis** su $\alpha$ mediante **5-Fold Cross-Validation** per identificare il bilanciamento ottimale al variare della scala dei dati.
-5. Valutare sia la precisione predittiva puntuale (RMSE, MAE) sia le metriche di ranking nei Top-N (Precision@K, NDCG@K).
-6. Analizzare sperimentalmente l'impatto della soglia del profilo utente $\theta$ e la capacità di mitigare il problema del **Cold Start**.
-7. Verificare la significatività statistica dei risultati emersi tramite **paired t-test** e **test di Wilcoxon**.
+- **Split:** nested K-Fold con 5 fold esterni e 3 fold interni, con seed `42`.
+- **Tuning interno:** `alpha ∈ [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]` e `theta ∈ [3.0, 4.0]`; il criterio di selezione è l’RMSE medio sui validation fold interni.
+- **Valutazione finale:** dopo il tuning, CF e CB vengono riaddestrati sull’intero training outer e misurati una sola volta sul test outer.
+- **Top-N:** candidati = catalogo meno item osservati dall’utente nel training outer; rilevante = rating nel test outer ≥ 4.0; massimo 500 utenti idonei per fold, campionati deterministicamente quando necessario.
+- **Cold item:** item con al più 2 rating nel training outer; il filtro non consulta mai le frequenze del test.
+- **Statistiche:** paired t-test e Wilcoxon sono applicati ai cinque RMSE dei test outer appaiati. Con cinque osservazioni il Wilcoxon bilaterale ha potenza limitata e viene interpretato con cautela.
 
----
+## 2. Modelli
 
-## 2. Dataset e Analisi Esplorativa dei Dati (EDA)
+Il CF usa TruncatedSVD sulla matrice sparsa dei residui con bias marginali. Il CB costruisce un profilo utente dai film positivi, usando 19 indicatori di genere armonizzati e l’anno normalizzato.
 
-La sperimentazione è condotta a confronto sui due dataset benchmark ufficiali resi disponibili dal gruppo di ricerca GroupLens dell'Università del Minnesota: **MovieLens 100k** e **MovieLens 1M**.
+### 2.1 Significato e ruolo della soglia $\theta$ nel Content-Based
 
-### 2.1 Metriche Esplorative Generali a Confronto
-Dall'analisi esplorativa automatizzata (`src/data_loader.py`) si ricavano le seguenti metriche quantitative comparative:
+La soglia $\theta$ stabilisce quali rating dell’utente vengono considerati positivi per costruire il profilo contenutistico. Formalmente, il profilo viene calcolato sui soli film appartenenti all’insieme $R_u^+(\theta)=\{i:r_{u,i}\geq\theta\}$. Nel progetto sono confrontate due configurazioni: $\theta=3.0$, che include i film valutati 3, 4 o 5, e $\theta=4.0$, che include soltanto i film valutati 4 o 5.
 
-| Metrica Esplorativa | MovieLens 100k | MovieLens 1M | Variazione / Fattore |
-|---|---|---|---|
-| **Numero Utenti ($N$)** | 943 | 6.040 | $\times 6.41$ |
-| **Numero Film ($M$)** | 1.682 | 3.883 | $\times 2.31$ |
-| **Numero Rating Totali** | 100.000 | 1.000.209 | $\times 10.00$ |
-| **Media Rating per Utente** | 106.04 | 165.60 | $+56.17\%$ |
-| **Media Rating per Film** | 59.45 | 257.59 | $+333.28\%$ |
-| **Sparsità Matrice** | **93.70%** | **95.74%** | $+2.04\%$ (Maggiore densità relazionale) |
+$$\mathbf{p}_u(\theta)=\frac{\sum_{i\in R_u^+(\theta)}r_{u,i}\mathbf{v}_i}{\sum_{i\in R_u^+(\theta)}r_{u,i}}.$$
 
-$$\text{Sparsity}_{\text{100k}} = 1 - \frac{100.000}{943 \times 1.682} = 93.70\% \qquad \text{Sparsity}_{\text{1M}} = 1 - \frac{1.000.209}{6.040 \times 3.883} = 95.74\%$$
+La scelta di $\theta$ modifica direttamente la composizione del profilo: con $\theta=3.0$ il profilo contiene più film ma anche preferenze moderate; con $\theta=4.0$ il profilo è più selettivo e rappresenta soprattutto i gusti forti dell’utente. Di conseguenza cambiano la cosine similarity, il rating CB e la correzione che il CB può applicare alla predizione CF. Se nessun rating supera la soglia, l’implementazione usa lo storico disponibile dell’utente come fallback.
 
-![Confronto Distribuzione Rating](figures/comparison/rating_distribution_comparison.png)
-*Figura 1: Distribuzione delle valutazioni (1-5) a confronto tra MovieLens 100k e MovieLens 1M.*
+Nel modello ibrido, $\theta$ non è un peso indipendente da $\alpha$: determina il contenuto del segnale CB che viene poi pesato da $(1-\alpha)$. Con $\alpha=0.9$, la scelta di $\theta$ influenza il 10% della predizione ibrida. Un profilo più selettivo può migliorare la coerenza semantica della correzione, ma può anche ridurne la copertura; per questo $\theta$ viene selezionato nella CV interna insieme ad $\alpha$, senza usare l’outer test.
 
-### 2.2 Analisi della Popolarità (Long Tail Analysis)
-In entrambi i dataset, la distribuzione dei voti per item evidenzia una spiccata natura a "coda lunga" (Long Tail): una frazione ridotta di film estremamente popolari assorbe la maggior parte delle interazioni. Tuttavia, in MovieLens 1M il numero medio di valutazioni per film sale da 59 a 257, fornendo al filtro collaborativo un numero di esempi molto più consistente anche nella fascia intermedia del catalogo.
+La nested CV ha selezionato $\theta=4.0$ in tutti i cinque outer fold di entrambi i dataset. Questo risultato indica che, con le feature disponibili (generi e anno), includere soltanto i film valutati almeno 4 produce una correzione CB più utile rispetto a includere anche i rating pari a 3.
 
-![Long Tail Analysis Comparison](figures/comparison/long_tail_comparison.png)
-*Figura 2: Long Tail analysis della popolarità dei film nei due dataset.*
+Il modello primario combina direttamente predizioni di rating già limitate alla scala MovieLens:
 
-### 2.3 Distribuzione dei Generi
-In entrambi i dataset vengono mappati 19 generi cinematografici binari. I generi maggiormente rappresentati nel catalogo rimangono *Drama*, *Comedy* e *Action*, consentendo un trasferimento diretto della profilazione del contenuto.
+$$\hat{r}^{\mathrm{Hybrid}}_{u,i}=\operatorname{clip}\left(\alpha\hat{r}^{\mathrm{CF}}_{u,i}+(1-\alpha)\hat{r}^{\mathrm{CB}}_{u,i},\,1,\,5\right).$$
 
----
+Questa scelta elimina la normalizzazione min-max dipendente dal batch: una predizione e il suo ordinamento non cambiano se il batch di candidati viene riordinato o suddiviso.
 
-## 3. Architettura e Metodologia
+## 3. Risultati
 
-![Architettura del Sistema Ibrido](figures/architettura.png)
-*Figura 3: Diagramma architetturale del Sistema di Raccomandazione Ibrido.*
+### 3.1 MovieLens 100k
 
+Il dataset contiene 100,000 rating, 943 utenti e 1,682 film; la sparsità della matrice è 93.70%.
 
-### 3.1 Collaborative Filtering Vettorizzato ($S_{CF}$)
-Il modulo CF adotta un algoritmo di **Biased Matrix Factorization (SVD)** ad elevate prestazioni basato su matrici sparse CSR (`scipy.sparse.csr_matrix`) e decompressione vettoriale `TruncatedSVD`. La stima del rating per l'utente $u$ e l'item $i$ è formulata come:
-$$\hat{r}_{u,i} = \mu + b_u + b_i + P_u \cdot Q_i^T$$
-dove $\mu$ rappresenta la media globale dei rating, $b_u$ e $b_i$ sono i bias utente e item, e $P_u, Q_i \in \mathbb{R}^k$ indicano i vettori latenti di dimensione $k=50$.
+| Modello | RMSE (mean ± std) | MAE (mean ± std) |
+|---|---:|---:|
+| global_mean | 1.1257 ± 0.0060 | 0.9447 ± 0.0056 |
+| user_mean | 1.0419 ± 0.0048 | 0.8349 ± 0.0051 |
+| item_mean | 1.0248 ± 0.0045 | 0.8174 ± 0.0051 |
+| cf_only | 0.9495 ± 0.0029 | 0.7428 ± 0.0025 |
+| cb_only | 1.2798 ± 0.0018 | 1.0182 ± 0.0026 |
+| hybrid_selected | 0.9440 ± 0.0027 | 0.7417 ± 0.0026 |
 
-Lo score normalizzato $S_{CF}(u, i) \in [0, 1]$ è ricavato mediante Min-Max scaling:
-$$S_{CF}(u, i) = \frac{\hat{r}_{u,i} - r_{\min}}{r_{\max} - r_{\min}} \quad (r_{\min}=1.0, r_{\max}=5.0)$$
+![RMSE nested](figures/ml-100k/nested_pointwise_rmse.png)
 
-### 3.2 Content-Based Filtering Vettorizzato ($S_{CB}$)
-Per ogni utente $u$, viene costruito un **Profilo Utente** $P_u$ calcolando la media pesata dei vettori caratteristici $V_i$ dei film che l'utente ha valutato positivamente ($\ge \theta$, con $\theta \in \{3.0, 4.0\}$):
-$$P_u = \frac{\sum_{i \in R_u^+} r_{u,i} \cdot V_i}{\sum_{i \in R_u^+} r_{u,i}}$$
-I vettori $V_i$ incorporano le 19 feature binarie di genere e l'anno di uscita del film normalizzato in $[0, 1]$.
-La rilevanza $S_{CB}(u, i)$ è misurata mediante **Cosine Similarity** vettorizzata:
-$$S_{CB}(u, i) = \text{CosineSimilarity}(P_u, V_i) = \frac{P_u \cdot V_i}{\|P_u\|_2 \|V_i\|_2}$$
+![Parametri scelti internamente](figures/ml-100k/nested_selected_parameters.png)
 
-La stima puntuale del rating per il modulo CB viene poi calibrata attorno alla media utente:
-$$\hat{r}_{u,i}^{CB} = \bar{r}_u + \delta_{u,i} \cdot \sigma_r$$
+#### Ranking Top-N
 
-### 3.3 Modulo di Fusione Ibrida
-Il punteggio combinato $S_{\text{Hybrid}}$ è definito dalla combinazione lineare pesata:
-$$S_{\text{Hybrid}}(u, i) = \alpha \cdot S_{CF}(u, i) + (1 - \alpha) \cdot S_{CB}(u, i), \quad \alpha \in [0, 1]$$
-Il rating finale predetto sulla scala originaria $[1, 5]$ è dato da:
-$$\hat{R}_{u,i} = r_{\min} + S_{\text{Hybrid}}(u, i) \cdot (r_{\max} - r_{\min})$$
+| Modello | Precision@5 | NDCG@5 | Precision@10 | NDCG@10 | Supporto utenti |
+|---|---:|---:|---:|---:|---:|
+| cf_only | 0.0165 ± 0.0035 | 0.0214 ± 0.0041 | 0.0106 ± 0.0021 | 0.0162 ± 0.0031 | 2500 |
+| cb_only | 0.0181 ± 0.0019 | 0.0196 ± 0.0025 | 0.0150 ± 0.0016 | 0.0193 ± 0.0026 | 2500 |
+| hybrid_selected | 0.0058 ± 0.0013 | 0.0075 ± 0.0018 | 0.0074 ± 0.0017 | 0.0085 ± 0.0020 | 2500 |
 
----
+#### Cold-item
 
-## 4. Valutazione Sperimentale e Risultati Comparativi
+Supporto complessivo: 679 rating test; 504 occorrenze di item cold conteggiate nei fold, di cui 150 con zero interazioni nel training (fold validi: 5).
 
-La valutazione sperimentale è stata eseguita interamente mediante **5-Fold Cross-Validation** su entrambi i dataset in forma integrale.
+| Modello | Cold RMSE (mean ± std) | Cold MAE (mean ± std) |
+|---|---:|---:|
+| cf_only | 1.3348 ± 0.0906 | 1.0186 ± 0.0929 |
+| cb_only | 1.3451 ± 0.0926 | 1.0971 ± 0.1102 |
+| user_mean | 1.0852 ± 0.0586 | 0.8635 ± 0.0406 |
+| hybrid_selected | 1.2674 ± 0.0906 | 0.9801 ± 0.0817 |
+| hybrid_alpha_0_5 | 1.1405 ± 0.0878 | 0.9150 ± 0.0643 |
 
-### 4.1 Valutazione Baseline Naive e Modelli Singoli (5-Fold CV)
-I risultati medi ottenuti nei 5 fold dimostrano il miglioramento sensibile registrato sul dataset MovieLens 1M grazie al volume di dati 10 volte superiore:
+#### Significatività e rilevanza pratica
 
-| Modello | MovieLens 100k RMSE (mean ± std) | MovieLens 1M RMSE (mean ± std) | Variazione RMSE |
-|---|---|---|---|
-| Global Mean Baseline | 1.1257 ± 0.0054 | 1.1171 ± 0.0016 | $-0.0086$ |
-| User Mean Baseline | 1.0419 ± 0.0043 | 1.0355 ± 0.0022 | $-0.0064$ |
-| Item Mean Baseline | 1.0248 ± 0.0040 | 0.9794 ± 0.0019 | $-0.0454$ |
-| **CB-only ($\alpha=0.0$)** | 1.2938 ± 0.0021 | 1.2847 ± 0.0018 | $-0.0091$ |
-| **CF-only ($\alpha=1.0$)** | 0.9492 ± 0.0023 | 0.8984 ± 0.0026 | $-0.0508$ |
-| **Hybrid ($\alpha^*=0.9$)** | **0.9445 ± 0.0022** | **0.8971 ± 0.0024** | **$-0.0474$** |
+Per Hybrid selezionato contro CF-only, la differenza media RMSE (Hybrid − CF) è -0.005496, con IC 95% [-0.006549, -0.004443]. Il paired t-test restituisce `t=-14.4911`, `p=0.00013185`; il Wilcoxon bilaterale restituisce `W=0.0000`, `p=0.0625`. Un’eventuale significatività deve essere letta insieme alla dimensione dell’effetto, non come prova autonoma di un grande beneficio pratico.
 
-### 4.2 Sensitivity Analysis e Procedura di Ottimizzazione del Parametro $\alpha$
+### 3.2 MovieLens 1M
 
-Per identificare in modo empiricamente rigoroso il valore ottimale del parametro di fusione pesata $\alpha^*$, è stata progettata ed eseguita una procedura di **Grid Search abbinata a 5-Fold Cross-Validation**:
+Il dataset contiene 1,000,209 rating, 6,040 utenti e 3,883 film; la sparsità della matrice è 95.74%.
 
-1. **Griglia di Valori per $\alpha$:** È stata definita una griglia uniforme di 11 punti di valutazione $\alpha \in \{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0\}$, estendendosi dal modello puramente basato sul contenuto ($\alpha = 0.0$) al modello puramente collaborativo ($\alpha = 1.0$).
-2. **Protocollo di Valutazione:** Per ciascuno dei 5 fold di Cross-Validation (80% training set, 20% test set), i singoli modelli CF (Biased SVD) e CB (Cosine Similarity con $\theta=3.0$) sono stati addestrati in modo indipendente sul training set. Successivamente, per ogni valore di $\alpha$ nella griglia, le predizioni combinate $S_{\text{Hybrid}} = \alpha S_{\text{CF}} + (1-\alpha) S_{\text{CB}}$ sono state valutate sul test set calcolando le metriche di errore mediato RMSE e MAE.
+| Modello | RMSE (mean ± std) | MAE (mean ± std) |
+|---|---:|---:|
+| global_mean | 1.1171 ± 0.0018 | 0.9339 ± 0.0014 |
+| user_mean | 1.0355 ± 0.0024 | 0.8289 ± 0.0024 |
+| item_mean | 0.9794 ± 0.0022 | 0.7823 ± 0.0020 |
+| cf_only | 0.8986 ± 0.0029 | 0.7018 ± 0.0027 |
+| cb_only | 1.2721 ± 0.0018 | 1.0107 ± 0.0015 |
+| hybrid_selected | 0.8966 ± 0.0027 | 0.7044 ± 0.0025 |
 
-#### Risultati Empirici della Sensitivity Analysis su MovieLens 1M
-Nella tabella seguente viene riportato l'andamento dettagliato delle metriche di errore nei 5 fold al variare di $\alpha$:
+![RMSE nested](figures/ml-1m/nested_pointwise_rmse.png)
 
-| Valore $\alpha$ | Configurazione Modello | RMSE (mean ± std) | MAE (mean ± std) | Note e Comportamento del Modello |
-|---|---|---|---|---|
-| $\alpha = 0.0$ | Pure Content-Based | 1.2847 ± 0.0018 | 1.0213 ± 0.0020 | Errore massimo (limitazione dei 19 generi) |
-| $\alpha = 0.1$ | Hybrid (10% CF / 90% CB) | 1.2384 ± 0.0019 | 0.9842 ± 0.0021 | Forte calo dell'errore grazie all'inserimento del CF |
-| $\alpha = 0.3$ | Hybrid (30% CF / 70% CB) | 1.1412 ± 0.0020 | 0.9021 ± 0.0022 | Progressivo miglioramento dell'accuratezza |
-| $\alpha = 0.5$ | Hybrid Bilanciato (50/50) | 1.0560 ± 0.0021 | 0.8354 ± 0.0023 | Configurazione ottimale per lo scenario Cold Start |
-| $\alpha = 0.7$ | Hybrid (70% CF / 30% CB) | 0.9421 ± 0.0022 | 0.7412 ± 0.0024 | Dominanza del segnale collaborativo |
-| $\alpha = 0.8$ | Hybrid (80% CF / 20% CB) | 0.9015 ± 0.0023 | 0.7105 ± 0.0025 | Prossimità al minimo globale |
-| **$\alpha = 0.9$** | **Hybrid Ottimale ($\alpha^*$)** | **0.8971 ± 0.0024** | **0.7072 ± 0.0025** | **MINIMO GLOBALE DELL'ERRORE (Optimal Weight)** |
-| $\alpha = 1.0$ | Pure Collaborative (SVD) | 0.8984 ± 0.0026 | 0.7017 ± 0.0024 | Errore lievemente superiore a $\alpha=0.9$ |
+![Parametri scelti internamente](figures/ml-1m/nested_selected_parameters.png)
 
-![Comparative Sensitivity Analysis](figures/comparison/alpha_sensitivity_comparison.png)
-*Figura 4: Sensitivity Analysis comparativa tra MovieLens 100k e MovieLens 1M (5-Fold Cross Validation).*
+#### Ranking Top-N
 
-#### Giustificazione Analitica dell'Ottimo $\alpha^* = 0.9$
-L'analisi quantitativa rivela tre aspetti fondamentali:
-- **Minimo Globale dell'RMSE:** L'errore minimo assoluto viene raggiunto esattamente per $\alpha^* = 0.9$ con un RMSE di **0,8971 ± 0.0024**.
-- **Perché 90% CF / 10% CB?:** Con 1.000.209 di valutazioni distribute su 6.040 utenti, la Matrix Factorization (SVD) ricostruisce uno spazio latente estremamente solido, coprendo il 90% della predizione. Il restante 10% attribuito al Content-Based fornisce la regolarizzazione necessaria per stabilizzare le stime su oggetti o utenti con meno interazioni.
-- **Vantaggio nel Ranking Top-K:** Come dimostrato nella sezione 4.4, mentre sull'RMSE l'apporto del CB è del 10%, nel ranking dei primi 5 e 10 raccomandati questo 10% agisce da *tie-breaker*, incrementando la Precision@5 del **+39%** rispetto al solo CF puro.
+| Modello | Precision@5 | NDCG@5 | Precision@10 | NDCG@10 | Supporto utenti |
+|---|---:|---:|---:|---:|---:|
+| cf_only | 0.0214 ± 0.0028 | 0.0254 ± 0.0028 | 0.0153 ± 0.0039 | 0.0206 ± 0.0034 | 2500 |
+| cb_only | 0.0158 ± 0.0025 | 0.0175 ± 0.0019 | 0.0147 ± 0.0019 | 0.0178 ± 0.0023 | 2500 |
+| hybrid_selected | 0.0263 ± 0.0036 | 0.0295 ± 0.0042 | 0.0241 ± 0.0030 | 0.0286 ± 0.0035 | 2500 |
 
-### 4.3 Esperimento Soglia Profilo Utente CB ($\theta=3.0$ vs $\theta=4.0$)
-Confrontando le performance del modello Content-Based al variare della soglia per la costruzione del profilo utente $P_u$:
+#### Cold-item
 
-| Soglia Profilo Utente | MovieLens 100k RMSE | MovieLens 1M RMSE |
-|---|---|---|
-| $\theta = 3.0$ (Rating $\ge 3$) | 1.2938 | 1.2847 |
-| **$\theta = 4.0$ (Rating $\ge 4$)** | **1.2798** | **1.2721** |
+Supporto complessivo: 550 rating test; 425 occorrenze di item cold conteggiate nei fold, di cui 135 con zero interazioni nel training (fold validi: 5).
 
-*Risultato:* Selezionare esclusivamente i film valutati con voto elevato ($\ge 4$) consente di costruire profili utente più puliti e caratterizzanti, riducendo l'errore del modello CB in entrambi i dataset.
+| Modello | Cold RMSE (mean ± std) | Cold MAE (mean ± std) |
+|---|---:|---:|
+| cf_only | 1.3402 ± 0.1134 | 1.0553 ± 0.1081 |
+| cb_only | 1.4286 ± 0.0695 | 1.1529 ± 0.0746 |
+| user_mean | 1.1821 ± 0.0992 | 0.9494 ± 0.0760 |
+| hybrid_selected | 1.2915 ± 0.1122 | 1.0249 ± 0.1021 |
+| hybrid_alpha_0_5 | 1.2226 ± 0.1004 | 0.9704 ± 0.0795 |
 
-### 4.4 Valutazione di Ranking Top-N (Precision@K, NDCG@K)
-La valutazione delle raccomandazioni Top-N (soglia di rilevanza per rating $\ge 4.0$) rivela un incremento cruciale della qualità di ranking sul dataset MovieLens 1M:
+#### Significatività e rilevanza pratica
 
-| Modello | ML-100k Prec@5 | ML-100k NDCG@5 | ML-1M Prec@5 | ML-1M NDCG@5 | ML-1M Prec@10 | ML-1M NDCG@10 |
-|---|---|---|---|---|---|---|
-| CF-only ($\alpha=1.0$) | 0.0057 | 0.0071 | 0.0169 | 0.0207 | 0.0121 | 0.0164 |
-| CB-only ($\alpha=0.0$) | 0.0115 | 0.0129 | 0.0170 | 0.0173 | 0.0160 | 0.0181 |
-| **Hybrid ($\alpha^*=0.9$)** | 0.0041 | 0.0051 | **0.0235** | **0.0269** | **0.0211** | **0.0252** |
+Per Hybrid selezionato contro CF-only, la differenza media RMSE (Hybrid − CF) è -0.002028, con IC 95% [-0.002467, -0.001589]. Il paired t-test restituisce `t=-12.8202`, `p=0.000213383`; il Wilcoxon bilaterale restituisce `W=0.0000`, `p=0.0625`. Un’eventuale significatività deve essere letta insieme alla dimensione dell’effetto, non come prova autonoma di un grande beneficio pratico.
 
-*Analisi del Ranking su MovieLens 1M:*  
-Sul dataset MovieLens 1M, il modello Ibrido ($\alpha=0.9$) ottiene un netto salto di prestazioni:
-- **Precision@5:** sale da $0.0169$ (CF puro) a **$0.0235$** (+39,0% di miglioramento relativo).
-- **NDCG@5:** sale da $0.0207$ (CF puro) a **$0.0269$** (+29,9% di miglioramento relativo).  
-Questo evidenzia come nei cataloghi estesi (3.883 film), la combinazione del segnale collaborativo latente con i profili di genere guidi l'ordinamento dei Top-N in posizioni significativamente più rilevanti.
+## 4. Discussione: contributo distinto di CF e CB
 
-### 4.5 Esperimento Cold Start (Item con $<3$ valutazioni)
-Nello scenario critico di **Cold Start** su film con pochissime valutazioni nel training set:
+La nested CV separa il contributo dei due rami perché misura CF-only, CB-only e Hybrid sugli stessi outer test fold. Il risultato non va letto come una semplice gara fra modelli: CF e CB forniscono segnali diversi, con utilità che dipende da scala del dataset, metrica e disponibilità di interazioni.
 
-| Modello | ML-100k Cold RMSE | ML-1M Cold RMSE | ML-1M Cold MAE |
-|---|---|---|---|
-| User Mean Baseline | 1.1793 | 1.2347 | 0.9842 |
-| CF-only ($\alpha=1.0$) | 1.4929 | 1.4708 | 1.1807 |
-| CB-only ($\alpha=0.0$) | 1.5197 | 1.5783 | 1.2653 |
-| **Hybrid ($\alpha=0.5$)** | **1.3881** | **1.4254** | **1.1702** |
-| Hybrid ($\alpha=0.9$) | 1.4156 | 1.4278 | 1.1589 |
+### 4.1 Contributo del Collaborative Filtering
 
-![Cold Start Comparison](figures/comparison/cold_start_comparison.png)
-*Figura 5: Performance in scenario Cold Start su film con pochissime valutazioni.*
+Il CF è il **motore predittivo principale**. I bias utente/item e i fattori latenti appresi dalla TruncatedSVD sfruttano le correlazioni collettive tra valutazioni: per questo il CF ricostruisce meglio il rating individuale rispetto ai soli metadati descrittivi. Il suo vantaggio aumenta quando ogni item e utente dispone di più interazioni, perché i fattori latenti sono stimati con evidenza più stabile.
 
-*Analisi:* In presenza di gravi carenze di interazioni per gli item, la fusione bilanciata ($\alpha=0.5$) consente al sistema di attenuare il degrado del filtro collaborativo riducendo l'RMSE Cold Start rispetto al CF puro ($1.4254$ vs $1.4708$).
+- **MovieLens 100k:** CF-only ottiene RMSE `0.9495`, contro `1.2798` di CB-only (vantaggio assoluto CF di `0.3304`). Questo quantifica che generi e anno non sostituiscono il segnale collaborativo per la predizione puntuale.
+- **MovieLens 1M:** CF-only ottiene RMSE `0.8986`, contro `1.2721` di CB-only (vantaggio assoluto CF di `0.3735`). Questo quantifica che generi e anno non sostituiscono il segnale collaborativo per la predizione puntuale.
 
-### 4.6 Validazione Statistica
-Il test di significatività condotto sulle predizioni di MovieLens 1M (5-Fold Cross-Validation) ha confermato la solidità statistica del miglioramento apportato dalla fusione ibrida:
-- **Hybrid vs CF-only:** $t = -7.6750, \quad p = 0.0015 < 0.05$ (Miglioramento statisticamente significativo nel paired t-test). Test non parametrico di Wilcoxon: $W = 0.0, p = 0.0625$ (il $p$-value minimo teorico raggiungibile a due code con $N=5$ fold è $(1/2)^4 = 0.0625$, corrispondente a una superiorità sistematica dell'ibrido in tutti e 5 i fold).
-- **Hybrid vs CB-only:** $t = -445.6688, \quad p = 1.52 \times 10^{-10} < 0.05$ (Miglioramento nettamente significativo, $W=0.0, p=0.0625$).
+Il CF, tuttavia, non possiede una nozione semantica esplicita di contenuto: due film possono essere vicini nello spazio latente anche se non condividono generi, e un item con poche interazioni ha fattori meno affidabili. Questi limiti sono lo spazio in cui il CB può essere complementare.
 
-### 4.7 Analisi Qualitativa, Ortogonalità dei Modelli (Jaccard Overlap) e Case Study
-In ottemperanza al requisito metodologico di differenziare e rendere trasparente il differente apporto dei due paradigmi di raccomandazione, sono state condotte due indagini: una quantitativa sull'indipendenza delle raccomandazioni e una qualitativa su utenti reali.
+### 4.2 Contributo del Content-Based Filtering
 
-#### 1. Misura di Ortogonalità delle Raccomandazioni (Indice di Overlap Jaccard)
-Per quantificare l'effettiva diversità e complementarità delle raccomandazioni prodotte dai due rami dell'architettura, è stato calcolato l'indice di **Jaccard Similarity** sulle liste Top-10 raccomandate da CF puro ($L_{\text{CF}}$) e CB puro ($L_{\text{CB}}$) per il medesimo utente:
-$$\text{Jaccard}(L_{\text{CF}}, L_{\text{CB}}) = \frac{|L_{\text{CF}} \cap L_{\text{CB}}|}{|L_{\text{CF}} \cup L_{\text{CB}}|}$$
-L'overlap medio registrato su un campione esteso di utenti è risultato pari ad appena lo **0,11%** ($<0.002$). Questo risultato dimostra empiricamente che i due modelli esplorano spazi di raccomandazione quasi interamente disgiunti ed ortogonali:
-- Il modulo **CF** cattura le correlazioni latenti collettive e promuove titoli inattesi (*serendipità*);
-- Il modulo **CB** circoscrive la ricerca attorno al perimetro di genere esplicitato dallo storico dell'utente (*coerenza semantica*).
+Il CB costruisce un profilo dai film positivamente valutati e confronta tale profilo con i vettori item basati su generi e anno. Il suo apporto è quindi **semantico e locale**: favorisce item coerenti con preferenze esplicite anche quando il segnale collaborativo è debole. Non è però competitivo come predittore di rating autonomo, perché 20 feature poco ricche non rappresentano registi, attori, temi, tag o caratteristiche narrative.
 
-#### 2. Case Study Qualitativo (Utente #1)
-Dalla sperimentazione è stato estratto un caso d'uso rappresentativo (Utente ID 1, con 208 valutazioni storiche), confrontando le raccomandazioni Top-5 fornite dai singoli moduli e dal sistema ibrido:
+- **MovieLens 100k:** CB-only ottiene Precision@5 `0.0181`, rispetto a `0.0165` del CF. Il confronto mostra che il CB può ordinare item rilevanti in alcuni contesti, pur avendo un RMSE molto più elevato; ranking e predizione del rating sono quindi obiettivi distinti.
+- **MovieLens 1M:** CB-only ottiene Precision@5 `0.0158`, rispetto a `0.0214` del CF. Il confronto mostra che il CB può ordinare item rilevanti in alcuni contesti, pur avendo un RMSE molto più elevato; ranking e predizione del rating sono quindi obiettivi distinti.
 
-| Contesto / Modello | Titoli Raccomandati / Storico | Generi Associati |
-|---|---|---|
-| **Profilo Storico Utente #1 (Top Voti 5.0)** | *Monty Python and the Holy Grail (1974)*<br>*When Harry Met Sally... (1989)*<br>*Dolores Claiborne (1994)*<br>*Searching for Bobby Fischer (1993)*<br>*Star Trek: The Wrath of Khan (1982)* | Comedy<br>Comedy, Romance<br>Drama, Thriller<br>Drama<br>Action, Adventure, Sci-Fi |
-| **Top-5 CF-only ($\alpha=1.0$)** | 1. *Delta of Venus (1994)*<br>2. *Some Mother's Son (1996)*<br>3. *Nico Icon (1995)*<br>4. *Perfect Candidate, A (1996)*<br>5. *Leading Man, The (1996)* | Drama<br>Drama<br>Documentary<br>Documentary<br>Romance |
-| **Top-5 CB-only ($\alpha=0.0$)** | 1. *Wag the Dog (1997)*<br>2. *Private Parts (1997)*<br>3. *Lay of the Land, The (1997)*<br>4. *As Good As It Gets (1997)*<br>5. *Kicked in the Head (1997)* | Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama<br>Comedy, Drama |
-| **Top-5 Hybrid ($\alpha^*=0.9$)** | 1. *Prefontaine (1997)*<br>2. *Some Mother's Son (1996)*<br>3. *Entertaining Angels: The Dorothy Day Story (1996)*<br>4. *Delta of Venus (1994)*<br>5. *Saint of Fort Washington, The (1993)* | Drama<br>Drama<br>Drama<br>Drama<br>Drama |
+### 4.3 Contributo di CF e CB *dentro* la predizione ibrida
 
-*Discussione del Caso di Studio:*  
-- Il **Content-Based** mostra una chiara tendenza all'*over-specialization*: tutti i 5 film consigliati appartengono alla rigida combinazione *Comedy, Drama*, ricalcando i generi più frequenti nello storico ma senza innovare.
-- Il **Collaborative Filtering** scopre associazioni latenti comunitarie proponendo generi mai valutati dall'utente (es. *Documentary* con voto medio molto alto nella community).
-- L'**Ibrido ($\alpha=0.9$)** opera una sintesi equilibrata: preserva la qualità cinematografica e l'accuratezza predittiva del CF selezionando film acclamati dalla community (come *Some Mother's Son* e *Delta of Venus*), ma filtrati dalla coerenza di genere col profilo utente (*Drama*), eliminando proposte fuorvianti e aumentando la fiducia dell'utente nella raccomandazione.
+Nel modello ibrido CF e CB non contribuiscono allo stesso modo: la predizione usa direttamente i due rating sulla medesima scala MovieLens,
 
----
+$$\hat{r}^{\mathrm{Hybrid}}_{u,i}=\alpha\hat{r}^{\mathrm{CF}}_{u,i}+(1-\alpha)\hat{r}^{\mathrm{CB}}_{u,i}.$$
 
-## 5. Discussione e Conclusioni
+Riscrivendo la formula rispetto alla previsione CF si ottiene `r_Hybrid − r_CF = (1−alpha) · (r_CB − r_CF)`. Il CF fornisce quindi la previsione di base; il CB sposta tale previsione solo in proporzione al suo peso e al disaccordo fra i due modelli. Se CF e CB concordano, il CB non modifica il risultato; se il CB assegna un rating maggiore/minore, applica una correzione positiva/negativa.
 
-### 5.1 Risposta alla Domanda Guida del Progetto
-> *"L'ipotesi teorica di partenza suggeriva che, grazie all'elevato volume di valutazioni, la fattorizzazione di matrice (SVD) potesse dominare quasi in modo esclusivo ($\alpha^* \approx 1.0$). Questa dinamica e il ruolo dell'ibridazione come cambiano passando da 100k a 1 Milione di valutazioni?"*
+- **MovieLens 100k:** la CV interna ha selezionato `alpha=0.9 (5/5 fold)` e `theta=4.0 (5/5 fold)`. In pratica il CF pesa in media `90%` e il CB `10%`; `theta=4.0` indica che il profilo CB usa soltanto film valutati almeno 4 dall’utente.
+- **MovieLens 1M:** la CV interna ha selezionato `alpha=0.9 (5/5 fold)` e `theta=4.0 (5/5 fold)`. In pratica il CF pesa in media `90%` e il CB `10%`; `theta=4.0` indica che il profilo CB usa soltanto film valutati almeno 4 dall’utente.
 
-**Risposta Sperimentale:**  
-I risultati empirici dimostrano che, passando da 100.000 a 1.000.209 valutazioni, la situazione **cambia significativamente a favore delle prestazioni complessive e del ranking Top-N**:
-1. **Accuratezza Predittiva (RMSE):** L'errore del modello cade da $0.9445$ a **$0.8971$** (miglioramento del $-5,0\%$). L'aumento di 10 volte nel volume dei rating consente all'SVD di affinare i fattori latenti riducendo l'errore sia del CF puro sia dell'Ibrido ($\alpha^*=0.9$).
-2. **Sinergia Ibrida nei Top-N:** Su MovieLens 1M la combinazione $\alpha^*=0.9$ supera nettamente sia il solo CF puro che il solo CB puro, incrementando la Precision@5 del **+39%** e l'NDCG@5 del **+30%**. La componente di contenuto agisce da regolarizzatore e *tie-breaker* qualitativo.
-3. **Resistenza al Cold Start:** Nei film poco valutati ($<3$ rating), l'apporto del modulo Content-Based con peso bilanciato ($\alpha=0.5$) previene i fallimenti del CF, riducendo l'RMSE Cold Start da $1.4708$ a **$1.4254$**.
+Nel caso osservato, `alpha=0.9` in tutti i fold significa che l’ibrido non fa una media paritaria: è un **CF dominante con correzione CB del 10%**. In formule, `r_Hybrid = r_CF + 0.1 · (r_CB − r_CF)`. Il CB non può quindi ribaltare da solo una predizione CF molto diversa, ma può modificare l’ordine di item con score CF vicini; questo è precisamente il meccanismo di *tie-breaking* che può incidere sul Top-N più che sull’RMSE globale.
 
-### 5.2 Sviluppi Futuri
-- Valutazione su **MovieLens 25M** (25 milioni di valutazioni) sfruttando le 1.128 dimensioni del Tag Genome per arricchire la profilazione del contenuto.
-- Implementazione di modelli di fusione non lineari basati su **Gradient Boosted Decision Trees (XGBoost/LightGBM)** e reti neurali deep & cross.
+Il ruolo di `theta=4.0` è altrettanto importante: la correzione CB viene calcolata da un profilo costruito solo con i titoli che l’utente ha apprezzato molto. Il 10% CB non rappresenta dunque un generico segnale di genere, ma una piccola spinta verso film simili alle preferenze forti dell’utente.
 
----
+#### Effetto misurato della correzione CB
 
-## 6. Bibliografia e Sitografia
+- **MovieLens 100k:** rispetto alla base CF, la correzione CB del peso selezionato porta l’RMSE da `0.9495` a `0.9440` (-0.0055; -0.58%). Nel ranking, peggiora Precision@5 da `0.0165` a `0.0058` (-65.0%) e NDCG@5 da `0.0214` a `0.0075` (-64.9%).
+- **MovieLens 1M:** rispetto alla base CF, la correzione CB del peso selezionato porta l’RMSE da `0.8986` a `0.8966` (-0.0020; -0.23%). Nel ranking, migliora Precision@5 da `0.0214` a `0.0263` (+23.2%) e NDCG@5 da `0.0254` a `0.0295` (+16.1%).
+
+Il contributo CB è quindi **condizionale**. Su ML-1M, il 10% di correzione semantica migliora il ranking perché il CF produce una base latente già solida e il CB aiuta a discriminare candidati vicini. Su ML-100k, la stessa correzione migliora leggermente RMSE ma peggiora il Top-N: la preferenza di genere non si allinea sempre con gli item rilevanti nel test. Il risultato mostra che il CB contribuisce come regolatore/tie-breaker, non come sostituto del CF; un peso scelto per RMSE non è necessariamente il peso ottimale per ranking.
+
+### 4.4 Cold-item e decisione operativa
+
+Nel cold-item, un peso CB più alto può attenuare l’incertezza del CF, ma i metadati disponibili non sono sufficienti a superare una stima robusta della media personale dell’utente. I risultati riportano sia l’ibrido selezionato per RMSE globale sia `alpha=0.5` come controllo esplorativo, senza presentare quest’ultimo come configurazione ottimizzata.
+
+- **MovieLens 100k:** Cold RMSE CF=`1.3348`, Hybrid selezionato=`1.2674`, Hybrid `alpha=0.5`=`1.1405`, User Mean=`1.0852`. L’ibrido migliora il CF, ma User Mean resta il riferimento più stabile nello scenario estremo.
+- **MovieLens 1M:** Cold RMSE CF=`1.3402`, Hybrid selezionato=`1.2915`, Hybrid `alpha=0.5`=`1.2226`, User Mean=`1.1821`. L’ibrido migliora il CF, ma User Mean resta il riferimento più stabile nello scenario estremo.
+
+**Sintesi:** usare il CF come base per l’accuratezza dei rating; usare il CB come complemento per aumentare la coerenza semantica, specialmente nel ranking di cataloghi più ricchi e per attenuare il cold-item. Per un sistema operativo, una possibile evoluzione è un peso adattivo: più CF per item popolari, più CB per item con poca evidenza, e selezione di `alpha` separata per RMSE e per ranking quando l’obiettivo primario è Top-N.
+
+### 4.5 Limiti metodologici
+
+La nested CV rimuove l’ottimismo dovuto alla scelta di `alpha` e `theta` sugli stessi fold di test. Rimangono limiti espliciti: lo split è casuale per interazioni e misura soprattutto la predizione di rating mancanti, non un vero scenario temporale; le feature CB sono limitate a generi e anno; il ranking ML-1M usa un campione deterministico di utenti per contenere i costi. Il cold-item valuta la scarsità di item, non il cold-user, e una baseline User Mean può restare competitiva perché non dipende dalla stima dell’item.
+
+## 5. Riproducibilità
+
+Eseguire `python run_pipeline.py` dopo l’installazione di `requirements.txt`. La pipeline rigenera il manifest `report/experiment_manifest.json`, i risultati versionati `report/experiment_results.json`, il riepilogo `report/nested_results.md`, figure e questa relazione. Il JSON conserva seed, ambiente, configurazioni scelte e metriche per fold.
+
+## Bibliografia
+
 1. Ricci, F., Rokach, L., & Shapira, B. (2015). *Recommender Systems Handbook*. Springer.
-2. Koren, Y., Bell, R., & Volinsky, C. (2009). *Matrix factorization techniques for recommender systems*. Computer, 42(8), 30-37.
-3. GroupLens Research — MovieLens 100k & 1M Datasets: `https://grouplens.org/datasets/movielens/`
+2. Koren, Y., Bell, R., & Volinsky, C. (2009). *Matrix factorization techniques for recommender systems*. Computer, 42(8), 30–37.
+3. GroupLens Research. *MovieLens Datasets*. https://grouplens.org/datasets/movielens/

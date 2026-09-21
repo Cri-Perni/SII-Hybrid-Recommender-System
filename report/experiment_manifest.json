@@ -1,0 +1,39 @@
+{
+  "schema_version": "2.0",
+  "created_at_utc": "2026-09-02T07:47:55.231952+00:00",
+  "config": {
+    "outer_splits": 5,
+    "inner_splits": 3,
+    "random_state": 42,
+    "alpha_grid": [
+      0.0,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "theta_grid": [
+      3.0,
+      4.0
+    ],
+    "ranking_k": [
+      5,
+      10
+    ],
+    "ranking_relevance_threshold": 4.0,
+    "ranking_max_users": 500,
+    "cold_item_max_train_ratings": 2,
+    "n_factors": 50
+  },
+  "datasets": [
+    "ml-100k",
+    "ml-1m"
+  ],
+  "command": "python run_pipeline.py"
+}

@@ -42,12 +42,12 @@ class ContentBasedRecommender:
                 
             pos_item_ids = pos_ratings['item_id'].values
             pos_r_vals = pos_ratings['rating'].values
-            
-            pos_indices = np.array([self.item_id_to_idx[i] for i in pos_item_ids if i in self.item_id_to_idx])
+            valid_pos_mask = np.array([item_id in self.item_id_to_idx for item_id in pos_item_ids])
+            pos_indices = np.array([self.item_id_to_idx[item_id] for item_id in pos_item_ids[valid_pos_mask]])
             
             if len(pos_indices) > 0:
                 pos_vectors = self.item_feature_matrix[pos_indices]
-                weights = pos_r_vals[:len(pos_indices)]
+                weights = pos_r_vals[valid_pos_mask]
                 p_u = np.sum(pos_vectors * weights[:, None], axis=0) / (np.sum(weights) + 1e-8)
             else:
                 p_u = self.global_user_profile.copy()

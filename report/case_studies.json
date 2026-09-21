@@ -1,0 +1,296 @@
+{
+  "avg_jaccard_overlap_pct": 0.11,
+  "case_studies": [
+    {
+      "user_id": 1,
+      "num_ratings": 208,
+      "history": [
+        {
+          "title": "Monty Python and the Holy Grail (1974)",
+          "genres": "Comedy",
+          "rating": 5.0
+        },
+        {
+          "title": "When Harry Met Sally... (1989)",
+          "genres": "Comedy, Romance",
+          "rating": 5.0
+        },
+        {
+          "title": "Dolores Claiborne (1994)",
+          "genres": "Drama, Thriller",
+          "rating": 5.0
+        },
+        {
+          "title": "Searching for Bobby Fischer (1993)",
+          "genres": "Drama",
+          "rating": 5.0
+        },
+        {
+          "title": "Star Trek: The Wrath of Khan (1982)",
+          "genres": "Action, Adventure, Sci-Fi",
+          "rating": 5.0
+        }
+      ],
+      "top5_cf": [
+        {
+          "title": "Delta of Venus (1994)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Some Mother's Son (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Nico Icon (1995)",
+          "genres": "Documentary"
+        },
+        {
+          "title": "Perfect Candidate, A (1996)",
+          "genres": "Documentary"
+        },
+        {
+          "title": "Leading Man, The (1996)",
+          "genres": "Romance"
+        }
+      ],
+      "top5_cb": [
+        {
+          "title": "Wag the Dog (1997)",
+          "genres": "Comedy, Drama"
+        },
+        {
+          "title": "Private Parts (1997)",
+          "genres": "Comedy, Drama"
+        },
+        {
+          "title": "Lay of the Land, The (1997)",
+          "genres": "Comedy, Drama"
+        },
+        {
+          "title": "As Good As It Gets (1997)",
+          "genres": "Comedy, Drama"
+        },
+        {
+          "title": "Kicked in the Head (1997)",
+          "genres": "Comedy, Drama"
+        }
+      ],
+      "top5_hybrid": [
+        {
+          "title": "Prefontaine (1997)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Entertaining Angels: The Dorothy Day Story (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Some Mother's Son (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Delta of Venus (1994)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Saint of Fort Washington, The (1993)",
+          "genres": "Drama"
+        }
+      ]
+    },
+    {
+      "user_id": 5,
+      "num_ratings": 138,
+      "history": [
+        {
+          "title": "Clerks (1994)",
+          "genres": "Comedy",
+          "rating": 5.0
+        },
+        {
+          "title": "Forbidden Planet (1956)",
+          "genres": "Sci-Fi",
+          "rating": 5.0
+        },
+        {
+          "title": "Empire Strikes Back, The (1980)",
+          "genres": "Action, Adventure, Drama, Romance, Sci-Fi, War",
+          "rating": 5.0
+        },
+        {
+          "title": "Blues Brothers, The (1980)",
+          "genres": "Action, Comedy, Musical",
+          "rating": 5.0
+        },
+        {
+          "title": "Mystery Science Theater 3000: The Movie (1996)",
+          "genres": "Comedy, Sci-Fi",
+          "rating": 5.0
+        }
+      ],
+      "top5_cf": [
+        {
+          "title": "Prefontaine (1997)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Santa with Muscles (1996)",
+          "genres": "Comedy"
+        },
+        {
+          "title": "Saint of Fort Washington, The (1993)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Perfect Candidate, A (1996)",
+          "genres": "Documentary"
+        },
+        {
+          "title": "Nico Icon (1995)",
+          "genres": "Documentary"
+        }
+      ],
+      "top5_cb": [
+        {
+          "title": "Money Talks (1997)",
+          "genres": "Action, Comedy"
+        },
+        {
+          "title": "Money Talks (1997)",
+          "genres": "Action, Comedy"
+        },
+        {
+          "title": "Low Down Dirty Shame, A (1994)",
+          "genres": "Action, Comedy"
+        },
+        {
+          "title": "Cowboy Way, The (1994)",
+          "genres": "Action, Comedy"
+        },
+        {
+          "title": "I Love Trouble (1994)",
+          "genres": "Action, Comedy"
+        }
+      ],
+      "top5_hybrid": [
+        {
+          "title": "Santa with Muscles (1996)",
+          "genres": "Comedy"
+        },
+        {
+          "title": "Prefontaine (1997)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Entertaining Angels: The Dorothy Day Story (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Some Mother's Son (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Saint of Fort Washington, The (1993)",
+          "genres": "Drama"
+        }
+      ]
+    },
+    {
+      "user_id": 100,
+      "num_ratings": 43,
+      "history": [
+        {
+          "title": "Apt Pupil (1998)",
+          "genres": "Drama, Thriller",
+          "rating": 5.0
+        },
+        {
+          "title": "As Good As It Gets (1997)",
+          "genres": "Comedy, Drama",
+          "rating": 5.0
+        },
+        {
+          "title": "Titanic (1997)",
+          "genres": "Action, Drama, Romance",
+          "rating": 5.0
+        },
+        {
+          "title": "Peacemaker, The (1997)",
+          "genres": "Action, Thriller, War",
+          "rating": 4.0
+        },
+        {
+          "title": "L.A. Confidential (1997)",
+          "genres": "Crime, Film-Noir, Mystery, Thriller",
+          "rating": 4.0
+        }
+      ],
+      "top5_cf": [
+        {
+          "title": "Marlene Dietrich: Shadow and Light (1996) ",
+          "genres": "Documentary"
+        },
+        {
+          "title": "Prefontaine (1997)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Nico Icon (1995)",
+          "genres": "Documentary"
+        },
+        {
+          "title": "Santa with Muscles (1996)",
+          "genres": "Comedy"
+        },
+        {
+          "title": "Some Mother's Son (1996)",
+          "genres": "Drama"
+        }
+      ],
+      "top5_cb": [
+        {
+          "title": "Spanish Prisoner, The (1997)",
+          "genres": "Drama, Thriller"
+        },
+        {
+          "title": "Crash (1996)",
+          "genres": "Drama, Thriller"
+        },
+        {
+          "title": "Trigger Effect, The (1996)",
+          "genres": "Drama, Thriller"
+        },
+        {
+          "title": "Loaded (1994)",
+          "genres": "Drama, Thriller"
+        },
+        {
+          "title": "Diabolique (1996)",
+          "genres": "Drama, Thriller"
+        }
+      ],
+      "top5_hybrid": [
+        {
+          "title": "Prefontaine (1997)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Some Mother's Son (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Entertaining Angels: The Dorothy Day Story (1996)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Delta of Venus (1994)",
+          "genres": "Drama"
+        },
+        {
+          "title": "Saint of Fort Washington, The (1993)",
+          "genres": "Drama"
+        }
+      ]
+    }
+  ]
+}

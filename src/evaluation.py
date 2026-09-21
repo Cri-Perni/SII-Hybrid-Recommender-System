@@ -1,148 +1,192 @@
+"""Metriche, ranking e utilità statistiche per esperimenti riproducibili."""
+
+from __future__ import annotations
+
+from typing import Iterable, Sequence
+
 import numpy as np
 import pandas as pd
+from scipy.stats import t as student_t
+from scipy.stats import ttest_rel, wilcoxon
 from sklearn.model_selection import KFold
-from scipy.stats import wilcoxon, ttest_rel
+
 
 def compute_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Computes Root Mean Squared Error."""
-    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+    return float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
 
 
 def compute_mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Computes Mean Absolute Error."""
-    return float(np.mean(np.abs(y_true - y_pred)))
+    return float(np.mean(np.abs(np.asarray(y_true) - np.asarray(y_pred))))
 
 
-def precision_at_k(recommended_items: list, relevant_items: set, k: int) -> float:
-    """Computes Precision@K for a single user."""
+def precision_at_k(recommended_items: Sequence[int], relevant_items: set[int], k: int) -> float:
+    """Computes Precision@K for one user."""
     top_k = recommended_items[:k]
-    if not top_k:
-        return 0.0
-    hits = len(set(top_k) & relevant_items)
-    return hits / k
+    return len(set(top_k).intersection(relevant_items)) / k if top_k else 0.0
 
 
-def ndcg_at_k(recommended_items: list, relevant_items: set, k: int) -> float:
-    """Computes NDCG@K for a single user."""
+def ndcg_at_k(recommended_items: Sequence[int], relevant_items: set[int], k: int) -> float:
+    """Computes binary-relevance NDCG@K for one user."""
     top_k = recommended_items[:k]
     if not top_k or not relevant_items:
         return 0.0
-    
-    dcg = 0.0
-    for idx, item in enumerate(top_k):
-        if item in relevant_items:
-            dcg += 1.0 / np.log2(idx + 2)
-            
+    dcg = sum(1.0 / np.log2(position + 2) for position, item in enumerate(top_k) if item in relevant_items)
     ideal_hits = min(k, len(relevant_items))
-    idcg = sum(1.0 / np.log2(idx + 2) for idx in range(ideal_hits))
-    
-    return float(dcg / idcg) if idcg > 0 else 0.0
+    idcg = sum(1.0 / np.log2(position + 2) for position in range(ideal_hits))
+    return float(dcg / idcg) if idcg else 0.0
 
 
-def evaluate_top_n(model, train_df: pd.DataFrame, test_df: pd.DataFrame, all_item_ids: list, k_list=[5, 10], relevance_threshold=4.0):
+def evaluate_top_n_detailed(
+    model,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    all_item_ids: Iterable[int],
+    k_list: Sequence[int] = (5, 10),
+    relevance_threshold: float = 4.0,
+    max_users: int = 500,
+    sample_seed: int = 42,
+) -> dict:
+    """Valuta ranking esclusivamente su utenti/item del test fold.
+
+    Per ogni utente eleggibile, i candidati sono tutti gli item del catalogo
+    non osservati nel training fold. Il campionamento di utenti, se necessario,
+    è deterministico e viene restituito assieme alle metriche.
     """
-    Evaluates Precision@K and NDCG@K for a given model across test users.
-    Samples 500 representative test users if N > 500 for instant evaluation.
-    """
-    test_rel = test_df[test_df['rating'] >= relevance_threshold]
-    relevant_by_user = test_rel.groupby('user_id')['item_id'].apply(set).to_dict()
-    train_items_by_user = train_df.groupby('user_id')['item_id'].apply(set).to_dict()
-    
-    precision_results = {k: [] for k in k_list}
-    ndcg_results = {k: [] for k in k_list}
-    
-    all_set = set(all_item_ids)
+    if not k_list or any(k <= 0 for k in k_list):
+        raise ValueError("k_list deve contenere soli valori positivi.")
+    if max_users <= 0:
+        raise ValueError("max_users deve essere positivo.")
+
+    relevant_by_user = (
+        test_df.loc[test_df["rating"] >= relevance_threshold]
+        .groupby("user_id")["item_id"]
+        .apply(set)
+        .to_dict()
+    )
+    train_items_by_user = train_df.groupby("user_id")["item_id"].apply(set).to_dict()
+    user_keys = sorted(relevant_by_user)
+    eligible_users = len(user_keys)
+    if eligible_users > max_users:
+        rng = np.random.RandomState(sample_seed)
+        user_keys = sorted(rng.choice(user_keys, size=max_users, replace=False).tolist())
+
+    catalogue = sorted(set(all_item_ids))
     max_k = max(k_list)
-    
-    user_keys = list(relevant_by_user.keys())
-    if len(user_keys) > 500:
-        rng = np.random.RandomState(42)
-        user_keys = list(rng.choice(user_keys, size=500, replace=False))
-    
-    for u in user_keys:
-        rel_items = relevant_by_user[u]
-        if not rel_items:
+    precision_values = {k: [] for k in k_list}
+    ndcg_values = {k: [] for k in k_list}
+    candidate_counts = []
+
+    for user_id in user_keys:
+        seen_items = train_items_by_user.get(user_id, set())
+        candidates = [item_id for item_id in catalogue if item_id not in seen_items]
+        if not candidates:
             continue
-            
-        seen_items = train_items_by_user.get(u, set())
-        unseen_items = list(all_set - seen_items)
-        if not unseen_items:
-            continue
-            
         candidate_df = pd.DataFrame({
-            'user_id': np.full(len(unseen_items), u),
-            'item_id': unseen_items
+            "user_id": np.full(len(candidates), user_id),
+            "item_id": candidates,
         })
-        
-        preds = model.predict_batch(candidate_df)
-        
-        # Fast top-K selection using NumPy argpartition
-        if len(preds) > max_k:
-            top_k_indices = np.argpartition(-preds, max_k)[:max_k]
-            top_k_sorted = top_k_indices[np.argsort(-preds[top_k_indices])]
-        else:
-            top_k_sorted = np.argsort(-preds)
-            
-        recommended_items = [unseen_items[idx] for idx in top_k_sorted]
-        
+        predictions = model.predict_batch(candidate_df)
+        # Ordine secondario sul item_id: ranking riproducibile anche a parità di score.
+        ranked_indices = np.lexsort((np.asarray(candidates), -np.asarray(predictions)))[:max_k]
+        recommended_items = [candidates[index] for index in ranked_indices]
+        relevant_items = relevant_by_user[user_id]
+        candidate_counts.append(len(candidates))
         for k in k_list:
-            precision_results[k].append(precision_at_k(recommended_items, rel_items, k))
-            ndcg_results[k].append(ndcg_at_k(recommended_items, rel_items, k))
-            
-    summary = {}
+            precision_values[k].append(precision_at_k(recommended_items, relevant_items, k))
+            ndcg_values[k].append(ndcg_at_k(recommended_items, relevant_items, k))
+
+    metrics = {}
     for k in k_list:
-        summary[f"Precision@{k}"] = float(np.mean(precision_results[k])) if precision_results[k] else 0.0
-        summary[f"NDCG@{k}"] = float(np.mean(ndcg_results[k])) if ndcg_results[k] else 0.0
-        
-    return summary
+        metrics[f"Precision@{k}"] = float(np.mean(precision_values[k])) if precision_values[k] else 0.0
+        metrics[f"NDCG@{k}"] = float(np.mean(ndcg_values[k])) if ndcg_values[k] else 0.0
+    return {
+        "metrics": metrics,
+        "support": {
+            "eligible_users": eligible_users,
+            "evaluated_users": len(candidate_counts),
+            "sampled_users": len(user_keys),
+            "max_users": max_users,
+            "sample_seed": sample_seed,
+            "mean_candidate_items": float(np.mean(candidate_counts)) if candidate_counts else 0.0,
+        },
+    }
 
 
-def run_5fold_cross_validation(ratings_df: pd.DataFrame, model_factory_fn, random_state=42):
-    """
-    Runs 5-Fold Cross Validation on ratings_df using model_factory_fn(fold_idx).
-    Returns list of dicts with fold metrics: rmse, mae.
-    """
-    kf = KFold(n_splits=5, shuffle=True, random_state=random_state)
+def evaluate_top_n(
+    model,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    all_item_ids: Iterable[int],
+    k_list: Sequence[int] = (5, 10),
+    relevance_threshold: float = 4.0,
+) -> dict:
+    """Compatibilità con la precedente API: restituisce solo le metriche."""
+    return evaluate_top_n_detailed(
+        model, train_df, test_df, all_item_ids, k_list, relevance_threshold
+    )["metrics"]
+
+
+def run_5fold_cross_validation(ratings_df: pd.DataFrame, model_factory_fn, random_state: int = 42) -> list[dict]:
+    """Compatibilità per notebook: CV semplice, non adatta al tuning finale."""
+    splitter = KFold(n_splits=5, shuffle=True, random_state=random_state)
     results = []
-    
-    for fold_idx, (train_idx, test_idx) in enumerate(kf.split(ratings_df)):
-        train_df = ratings_df.iloc[train_idx].copy()
-        test_df = ratings_df.iloc[test_idx].copy()
-        
-        model = model_factory_fn(fold_idx)
-        model.fit(train_df)
-        
-        preds = model.predict_batch(test_df)
-        y_true = test_df['rating'].values
-        
-        rmse = compute_rmse(y_true, preds)
-        mae = compute_mae(y_true, preds)
-        
-        results.append({'fold': fold_idx, 'rmse': rmse, 'mae': mae})
-        
+    for fold_idx, (train_idx, test_idx) in enumerate(splitter.split(ratings_df)):
+        train_df = ratings_df.iloc[train_idx]
+        test_df = ratings_df.iloc[test_idx]
+        model = model_factory_fn(fold_idx).fit(train_df)
+        predictions = model.predict_batch(test_df)
+        results.append({
+            "fold": fold_idx,
+            "rmse": compute_rmse(test_df["rating"].to_numpy(), predictions),
+            "mae": compute_mae(test_df["rating"].to_numpy(), predictions),
+        })
     return results
 
 
-def perform_statistical_test(model_a_rmses: list, model_b_rmses: list, model_a_name="Model A", model_b_name="Model B"):
-    """
-    Performs paired t-test and Wilcoxon signed-rank test on fold RMSE scores.
-    """
-    a = np.array(model_a_rmses)
-    b = np.array(model_b_rmses)
-    
-    t_stat, t_p = ttest_rel(a, b)
-    
+def summarize_metric_values(values: Iterable[float]) -> dict:
+    """Media, deviazione campionaria e IC t al 95% per valori per-fold."""
+    array = np.asarray(list(values), dtype=float)
+    if array.size == 0:
+        return {"mean": None, "std": None, "n": 0, "ci95": [None, None]}
+    mean = float(np.mean(array))
+    if array.size == 1:
+        return {"mean": mean, "std": 0.0, "n": 1, "ci95": [mean, mean]}
+    std = float(np.std(array, ddof=1))
+    half_width = float(student_t.ppf(0.975, df=array.size - 1) * std / np.sqrt(array.size))
+    return {"mean": mean, "std": std, "n": int(array.size), "ci95": [mean - half_width, mean + half_width]}
+
+
+def perform_statistical_test(
+    model_a_rmses: Sequence[float],
+    model_b_rmses: Sequence[float],
+    model_a_name: str = "Model A",
+    model_b_name: str = "Model B",
+) -> dict:
+    """Test paired su outer-fold allineati, con effetto e IC della differenza."""
+    a = np.asarray(model_a_rmses, dtype=float)
+    b = np.asarray(model_b_rmses, dtype=float)
+    if a.shape != b.shape or a.size < 2:
+        raise ValueError("I due vettori paired devono avere stessa cardinalità e almeno due valori.")
+    differences = a - b
+    t_statistic, t_p_value = ttest_rel(a, b)
     try:
-        w_stat, w_p = wilcoxon(a, b)
-    except Exception:
-        w_stat, w_p = 0.0, 1.0
-        
+        wilcoxon_statistic, wilcoxon_p_value = wilcoxon(a, b, alternative="two-sided")
+    except ValueError:
+        wilcoxon_statistic, wilcoxon_p_value = 0.0, 1.0
+    difference_summary = summarize_metric_values(differences)
     return {
         "model_a": model_a_name,
         "model_b": model_b_name,
-        "t_statistic": float(t_stat),
-        "t_p_value": float(t_p),
-        "wilcoxon_statistic": float(w_stat),
-        "wilcoxon_p_value": float(w_p),
-        "statistically_significant_p05": bool(t_p < 0.05)
+        "paired_folds": int(a.size),
+        "mean_rmse_difference_a_minus_b": difference_summary["mean"],
+        "difference_ci95": difference_summary["ci95"],
+        "t_statistic": float(t_statistic),
+        "t_p_value": float(t_p_value),
+        "t_test_significant_p05": bool(t_p_value < 0.05),
+        "wilcoxon_statistic": float(wilcoxon_statistic),
+        "wilcoxon_p_value": float(wilcoxon_p_value),
+        "wilcoxon_significant_p05": bool(wilcoxon_p_value < 0.05),
+        "interpretation": "Negative differences favor model_a because lower RMSE is better.",
     }

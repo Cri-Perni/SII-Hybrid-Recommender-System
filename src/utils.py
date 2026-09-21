@@ -295,3 +295,50 @@ def plot_comparative_long_tail(ratings_100k: pd.DataFrame, ratings_1m: pd.DataFr
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=300)
     plt.close(fig)
+
+
+
+def plot_nested_pointwise(pointwise: dict, save_path: str = None, dataset_label: str = "MovieLens"):
+    """Plot RMSE outer-fold aggregato prodotto dal JSON nested."""
+    labels = list(pointwise)
+    means = [pointwise[name]['rmse']['mean'] for name in labels]
+    stds = [pointwise[name]['rmse']['std'] for name in labels]
+    display_labels = [name.replace('_', ' ') for name in labels]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bars = ax.bar(display_labels, means, yerr=stds, capsize=4, color='#2b5c8f')
+    ax.set_title(f'Nested 5x3 CV — RMSE sui test fold esterni ({dataset_label})', fontsize=13, fontweight='bold')
+    ax.set_ylabel('RMSE')
+    ax.tick_params(axis='x', rotation=25)
+    for bar, mean in zip(bars, means):
+        ax.annotate(f'{mean:.4f}', (bar.get_x() + bar.get_width() / 2, mean),
+                    ha='center', va='bottom', xytext=(0, 3), textcoords='offset points', fontsize=8)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300)
+    plt.close(fig)
+
+
+def plot_selected_parameters(selected_parameters: list, save_path: str = None, dataset_label: str = "MovieLens"):
+    """Visualizza alpha e theta scelti solo dalle CV interne nei cinque outer fold."""
+    folds = np.arange(1, len(selected_parameters) + 1)
+    alphas = [params['alpha'] for params in selected_parameters]
+    thetas = [params['theta'] for params in selected_parameters]
+    fig, (ax_alpha, ax_theta) = plt.subplots(1, 2, figsize=(10, 4))
+    ax_alpha.bar(folds, alphas, color='#8e44ad')
+    ax_alpha.set_ylim(0, 1)
+    ax_alpha.set_xticks(folds)
+    ax_alpha.set_xlabel('Outer fold')
+    ax_alpha.set_ylabel('Alpha selezionato')
+    ax_alpha.set_title('Selezione interna di alpha')
+    ax_theta.bar(folds, thetas, color='#27ae60')
+    ax_theta.set_xticks(folds)
+    ax_theta.set_xlabel('Outer fold')
+    ax_theta.set_ylabel('Theta selezionato')
+    ax_theta.set_title('Selezione interna di theta')
+    fig.suptitle(f'Nested 5x3 CV — Iperparametri scelti ({dataset_label})', fontweight='bold')
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300)
+    plt.close(fig)
